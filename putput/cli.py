@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
+import math
 from pathlib import Path
-
-import numpy as np
-import pandas as pd
 
 from . import analysis, data, visualization
 
@@ -16,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--spy-period",
         default="10y",
-        help="Historical lookback period to request from Yahoo Finance (e.g. '5y', '1y').",
+        help="Historical lookback period expressed as a year string (e.g. '5y', '1y').",
     )
     parser.add_argument(
         "--days-to-expiration",
@@ -54,49 +53,80 @@ def run(args: argparse.Namespace) -> None:
     output_dir: Path = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    visualization.plot_premium_yield_timeseries(
-        enriched,
-        output_path=output_dir / "premium_yield_timeseries.png",
-    )
-    visualization.plot_seasonality_heatmap(
-        enriched,
-        output_path=output_dir / "premium_seasonality_heatmap.png",
-    )
+    figures: dict[str, str | None] = {}
+    if visualization.HAS_MATPLOTLIB:
+        timeseries_path = output_dir / "premium_yield_timeseries.png"
+        visualization.plot_premium_yield_timeseries(
+            enriched,
+            output_path=timeseries_path,
+        )
+        seasonality_path = output_dir / "premium_seasonality_heatmap.png"
+        visualization.plot_seasonality_heatmap(
+            enriched,
+            output_path=seasonality_path,
+        )
+        figures = {
+            "timeseries": str(timeseries_path),
+            "seasonality": str(seasonality_path),
+        }
+    else:
+        print(
+            "matplotlib is not available; skipping generation of visualization "
+            "artifacts."
+        )
 
-    top_opportunities = (
-        enriched.sort_values("annualized_premium_yield", ascending=False)
-        .head(25)
-        .loc[:, [
+    sorted_rows = sorted(
+        enriched,
+        key=lambda row: row["annualized_premium_yield"],
+        reverse=True,
+    )
+    top_opportunities = sorted_rows[:25]
+    top_path = output_dir / "top_put_sell_windows.csv"
+    if top_opportunities:
+        fieldnames = [
             "close",
             "strike",
             "estimated_premium",
             "premium_yield",
             "annualized_premium_yield",
             "volatility",
-        ]]
-    )
-    top_path = output_dir / "top_put_sell_windows.csv"
-    top_opportunities.to_csv(top_path, float_format="%.6f")
+        ]
+        with top_path.open("w", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in top_opportunities:
+                writer.writerow({
+                    key: f"{row[key]:.6f}" if isinstance(row[key], float) else row[key]
+                    for key in fieldnames
+                })
+    else:
+        top_path.write_text("close,strike,estimated_premium,premium_yield,annualized_premium_yield,volatility\n")
 
-    def _to_float(value: float) -> float:
-        if isinstance(value, (np.floating, np.integer)):
-            return float(value)
-        return float(value)
+    yield_summary = analysis.summarize_yields(enriched)
+
+    def _clean_float(value: float | None) -> float | None:
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return None
+        return value
 
     summary = {
         "observations": len(enriched),
-        "mean_annualized_yield": float(enriched["annualized_premium_yield"].mean()),
-        "median_annualized_yield": float(enriched["annualized_premium_yield"].median()),
-        "figures": {
-            "timeseries": str(output_dir / "premium_yield_timeseries.png"),
-            "seasonality": str(output_dir / "premium_seasonality_heatmap.png"),
-        },
+        "mean_annualized_yield": _clean_float(yield_summary.get("mean")),
+        "median_annualized_yield": _clean_float(yield_summary.get("median")),
+        "figures": figures,
         "top_table": str(top_path),
     }
-    if not top_opportunities.empty:
+    if top_opportunities:
         summary["top_window"] = {
-            key: _to_float(value)
-            for key, value in top_opportunities.iloc[0].to_dict().items()
+            key: float(top_opportunities[0][key])
+            for key in [
+                "close",
+                "strike",
+                "estimated_premium",
+                "premium_yield",
+                "annualized_premium_yield",
+                "volatility",
+            ]
         }
 
     summary_path = output_dir / "summary.json"
