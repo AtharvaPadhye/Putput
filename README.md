@@ -1,14 +1,15 @@
 # Putput
 
 Tools for analyzing cash-secured put (short put) opportunities on $SPY. The
-project downloads historical pricing data, estimates theoretical option
-premiums with a Black–Scholes model, and produces visual artifacts that help you
-identify when premium yields have been most attractive.
+project ships with a deterministic synthetic data generator so the full
+analytics pipeline can run in offline or network-restricted environments. The
+CLI estimates theoretical option premiums with a Black–Scholes model and
+produces artifacts that highlight periods with attractive yields.
 
 ## Features
 
-- Automated download of SPY price history and the 13-week Treasury bill rate
-  (used as the risk-free rate) via [Yahoo! Finance](https://finance.yahoo.com).
+- Deterministic generation of SPY-like price history and risk-free rate series
+  suitable for testing and CI environments.
 - Rolling volatility estimation and Black–Scholes pricing for 30-day, 5% OTM
   cash-secured puts (configurable).
 - Visualization of the annualized premium yield over time as well as
@@ -26,7 +27,7 @@ identify when premium yields have been most attractive.
    pip install -r requirements.txt
    ```
 
-2. Execute the analysis CLI (this will download market data on first run):
+2. Execute the analysis CLI (synthetic market data is generated on the fly):
 
    ```bash
    python -m putput.cli --spy-period 5y --days-to-expiration 30 --strike-distance 0.05
@@ -36,7 +37,7 @@ identify when premium yields have been most attractive.
 
    | Flag | Description |
    | ---- | ----------- |
-   | `--spy-period` | Lookback period passed to Yahoo Finance (e.g. `1y`, `5y`, `max`). |
+   | `--spy-period` | Lookback period expressed in years (e.g. `1y`, `5y`, `10y`). |
    | `--days-to-expiration` | Days until expiration assumed when estimating the premium. |
    | `--strike-distance` | Fractional distance below spot for the strike (0.05 = 5% OTM). |
    | `--output-dir` | Folder where plots, tables, and the summary JSON will be saved. |
@@ -55,8 +56,9 @@ identify when premium yields have been most attractive.
 
 - The premium estimates rely on a simplified Black–Scholes model using
   historical volatility; real option prices will differ.
-- Yahoo Finance data can occasionally be rate limited or unavailable. Re-run the
-  CLI if you encounter transient download failures.
+- The bundled synthetic data is tuned for testing workflows and does not
+  represent actual market data. For production use, adapt the data module to
+  source live prices and rates that match your brokerage.
 - Consider adjusting the strike distance and expiration inputs to match your
   personal risk tolerance and preferred option selling cadence.
 
